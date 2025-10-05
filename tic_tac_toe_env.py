@@ -10,8 +10,11 @@ class TicTacToeEnv(gym.Env):
     
     The board is represented as a 3x3 grid with the following values:
     - 0: empty cell
-    - 1: player X (agent)
-    - -1: player O (opponent)
+    - 1: current player's piece
+    - -1: opponent's piece
+    
+    The observation is from the perspective of the current player,
+    so the current player always sees their pieces as +1 and opponent as -1.
     
     Actions are integers from 0-8 representing positions on the board:
     0 | 1 | 2
@@ -26,14 +29,14 @@ class TicTacToeEnv(gym.Env):
         
         # Define action and observation spaces
         self.action_space = spaces.Discrete(9)  # 9 possible positions
-        # Observation space: 3x3 board with values 0 (empty), 1 (X), -1 (O)
+        # Observation space: 3x3 board with values 0 (empty), 1 (current player), -1 (opponent)
         self.observation_space = spaces.Box(
             low=-1, high=1, shape=(9,), dtype=np.int8
         )
         
         # Initialize the board
         self.board = np.zeros((3, 3), dtype=np.int8)
-        self.current_player = 1  # 1 for X (agent), -1 for O (opponent)
+        self.current_player = 1  # 1 for X (first player), -1 for O (second player)
         self.done = False
         self.winner = None
         
@@ -44,7 +47,7 @@ class TicTacToeEnv(gym.Env):
         self.current_player = 1
         self.done = False
         self.winner = None
-        return self.board.flatten().copy(), {}  # Return flattened board and info dict
+        return self._get_observation(), {}  # Return perspective-based observation and info dict
     
     def step(self, action):
         """
@@ -54,7 +57,7 @@ class TicTacToeEnv(gym.Env):
             action: integer from 0-8 representing the position to play
             
         Returns:
-            observation: current state of the board
+            observation: current state of the board from current player's perspective
             reward: reward for the action
             done: whether the game has ended
             truncated: whether the episode was truncated
@@ -62,8 +65,10 @@ class TicTacToeEnv(gym.Env):
         """
         # Check if action is valid
         if not self._is_valid_action(action):
-            # Invalid action - penalize and end game
-            return self.board.flatten().copy(), -10, True, False, {"error": "Invalid action"}
+            # Invalid action - penalize and end game with opponent winning
+            self.winner = self.current_player * -1  # Opponent wins
+            self.done = True
+            return self._get_observation(), -1, True, False, {"error": "Invalid action", "winner": self.winner}
         
         # Apply the action to the board
         row, col = divmod(action, 3)
@@ -75,12 +80,12 @@ class TicTacToeEnv(gym.Env):
         
         reward = 0
         
-        if winner == 1:  # Agent wins
-            reward = 1
+        if winner == 1:  # Player 1 wins
+            reward = 1 if self.current_player == 1 else -1  # Reward relative to current player
             self.winner = 1
             done = True
-        elif winner == -1:  # Opponent wins
-            reward = -1
+        elif winner == -1:  # Player -1 wins
+            reward = 1 if self.current_player == -1 else -1  # Reward relative to current player
             self.winner = -1
             done = True
         elif done:  # Draw
@@ -91,14 +96,23 @@ class TicTacToeEnv(gym.Env):
         self.current_player *= -1
         
         # Return observation, reward, done, truncated, and info
-        return self.board.flatten().copy(), reward, done, False, {"winner": self.winner}
+        return self._get_observation(), reward, done, False, {"winner": self.winner}
+    
+    def _get_observation(self):
+        """
+        Get the observation from the perspective of the current player.
+        This ensures the current player always sees their pieces as +1 and opponent as -1.
+        """
+        # Return the board from the current player's perspective
+        # This means: current player's pieces = +1, opponent's pieces = -1
+        return (self.board * self.current_player).flatten().copy()
     
     def _is_valid_action(self, action):
         """Check if an action is valid (position is empty)."""
         if action < 0 or action > 8:
             return False
         row, col = divmod(action, 3)
-        return self.board[row, col] == 0
+        return self.board[row, col] == 0  # Check the actual board state, not the perspective
     
     def _check_winner(self):
         """Check if there's a winner. Returns 1 for X, -1 for O, 0 for no winner."""
