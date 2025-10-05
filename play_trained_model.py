@@ -94,7 +94,7 @@ def play_against_trained_model(model_path="tic_tac_toe_dqn_selfplay.zip", algori
             if not done:
                 # AI's turn
                 print("AI is thinking...")
-                ai_action = trainer.predict_with_legal_actions(trainer.best_model, obs, deterministic=True)
+                ai_action, _ = trainer.best_model.predict(obs, deterministic=True)
                 obs, reward, done, truncated, info = env.step(ai_action)
                 env.render()
                 

@@ -68,7 +68,7 @@ class TicTacToeEnv(gym.Env):
             # Invalid action - penalize and end game with opponent winning
             self.winner = self.current_player * -1  # Opponent wins
             self.done = True
-            return self._get_observation(), -1, True, False, {"error": "Invalid action", "winner": self.winner}
+            return self._get_observation(), -20, True, False, {"error": "Invalid action", "winner": self.winner}
         
         # Apply the action to the board
         row, col = divmod(action, 3)

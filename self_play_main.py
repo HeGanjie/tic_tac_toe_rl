@@ -50,8 +50,8 @@ class SelfPlayTrainer:
                 "MlpPolicy",
                 self.env,
                 learning_rate=self.learning_rate,
-                n_steps=10,
-                batch_size=64,
+                n_steps=16,
+                batch_size=32,
                 n_epochs=10,
                 clip_range=0.2,
                 verbose=0
@@ -66,60 +66,7 @@ class SelfPlayTrainer:
             )
         else:
             raise ValueError(f"Unsupported algorithm: {self.algorithm}")
-    
-    def predict_with_legal_actions(self, model, obs, deterministic=False):
-        """
-        Predict action considering only legal moves.
-        This filters out invalid actions after getting the model's action probabilities.
-        """
-        if hasattr(model, 'predict'):
-            # Check if this is a DQN model
-            if hasattr(model, 'q_net'):
-                # For DQN, get Q-values - ensure device consistency
-                device = model.device  # Get the model's device
-                obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(device)
-                q_values = model.q_net(obs_tensor).detach().cpu().numpy()[0]  # Move to CPU for numpy operations
-                
-                # Set Q-values for illegal actions to a very low value
-                legal_actions = [i for i in range(9) if obs[i] == 0]
-                masked_q_values = np.full_like(q_values, -np.inf)
-                for action in legal_actions:
-                    masked_q_values[action] = q_values[action]
-                
-                if deterministic:
-                    return np.argmax(masked_q_values)
-                else:
-                    # Apply softmax to legal actions only
-                    # Shift values to avoid overflow
-                    shifted_q_values = masked_q_values - np.max(masked_q_values)
-                    exp_values = np.exp(shifted_q_values)
-                    # Set illegal actions to 0
-                    exp_values = np.where(np.isneginf(masked_q_values), 0, exp_values)
-                    # Normalize to get probabilities
-                    probs = exp_values / np.sum(exp_values)
-                    return np.random.choice(len(probs), p=probs)
-            
-            else:  # For PPO or A2C
-                # A simpler approach: use the model's predict method but validate the action
-                # Keep sampling until we get a legal action
-                while True:
-                    action, _ = model.predict(obs, deterministic=deterministic)
-                    if isinstance(action, np.ndarray):
-                        action = action.item()
-                    
-                    # Check if the action is legal
-                    if obs[action] == 0:  # Legal action
-                        return action
-                    else:  # Illegal action, use a random legal action instead
-                        legal_actions = [i for i in range(9) if obs[i] == 0]
-                        if legal_actions:
-                            return random.choice(legal_actions)
-                        else:
-                            return 0  # Fallback if no legal moves (shouldn't happen in practice)
-        else:
-            # Fallback for simple agents (like random_agent)
-            return model(obs)
-    
+
     def play_game(self, model1, model2, render=False) -> Tuple[int, List[Dict]]:
         """
         Play a game between two models or agents.
@@ -145,12 +92,12 @@ class SelfPlayTrainer:
             # Get action based on current player
             if player_turn == 1:  # X's turn
                 if hasattr(model1, 'predict'):  # It's an SB3 model
-                    action = self.predict_with_legal_actions(model1, obs, deterministic=False)
+                    action, _ = model1.predict(obs, deterministic=False)
                 else:  # It's a function (like random_agent)
                     action = model1(obs)
             else:  # O's turn
                 if hasattr(model2, 'predict'):  # It's an SB3 model
-                    action = self.predict_with_legal_actions(model2, obs, deterministic=False)
+                    action, _ = model2.predict(obs, deterministic=False)
                 else:  # It's a function (like random_agent)
                     action = model2(obs)
             
@@ -263,11 +210,9 @@ class SelfPlayTrainer:
                 opponent = "random"
             elif episode < 2000:  # Mid training: mix of random and current model
                 opponent = self.current_model if random.random() < 0.7 else "random"
-            elif episode < 10000:  # Mid training: mix of random and current model
-                opponent = self.current_model if random.random() < 0.9 else "random"
             else:  # Later training: mostly current model with some exploration
-                opponent = self.current_model
-            
+                opponent = self.current_model if random.random() < 0.9 else "random"
+
             # Alternate which player uses the current model to ensure balanced training
             if random.random() < 0.5:
                 # Current model plays as X (first player)
@@ -471,7 +416,7 @@ def play_human_vs_ai(trainer: SelfPlayTrainer):
         if not done:
             # AI's turn
             print("AI is thinking...")
-            ai_action = trainer.predict_with_legal_actions(trainer.best_model, obs, deterministic=True)
+            ai_action, _ = trainer.best_model.predict(obs, deterministic=True)
             obs, reward, done, truncated, info = env.step(ai_action)
             
             if done:
