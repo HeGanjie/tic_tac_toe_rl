@@ -62,7 +62,13 @@ def play_against_trained_model(model_path="tic_tac_toe_dqn_selfplay.zip", algori
         
         while not done:
             # Human's turn
-            valid_actions = [i for i in range(9) if obs[i] == 0]
+            # Find valid actions from the empty positions channel (channel 2)
+            empty_positions = obs[2]  # This contains 1 where positions are empty, 0 otherwise
+            valid_actions = []
+            for i in range(9):
+                row, col = divmod(i, 3)
+                if empty_positions[row, col] == 1:  # If position is empty
+                    valid_actions.append(i)
             if not valid_actions:
                 break
                 

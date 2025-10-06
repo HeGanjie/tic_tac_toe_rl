@@ -1,16 +1,49 @@
 import numpy as np
 import random
 from typing import List, Tuple, Dict
+import torch
+import torch.nn as nn
 from stable_baselines3 import DQN, A2C
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 from tic_tac_toe_env import TicTacToeEnv  # Import the base environment
-import torch
-import torch.nn as nn
 import torch.optim as optim
 import os
+
+
+class CustomTicTacToeCNN(BaseFeaturesExtractor):
+    """
+    一个为3x3x3井字棋棋盘设计的轻量级CNN。
+    """
+    def __init__(self, observation_space, features_dim=64):
+        super().__init__(observation_space, features_dim)
+        # 输入: (3, 3, 3) -> [Channels, Height, Width]
+        self.cnn = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=2), # 3x3 -> 2x2
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=2), # 2x2 -> 1x1
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        
+        # 计算CNN输出维度
+        with torch.no_grad():
+            sample_input = torch.as_tensor(observation_space.sample()[None]).float()
+            n_flatten = self.cnn(sample_input).shape[1]
+            
+        self.linear = nn.Sequential(
+            nn.Linear(n_flatten, features_dim),
+            nn.ReLU()
+        )
+
+    def forward(self, observations):
+        # 调整维度顺序: [batch, H, W, C] -> [batch, C, H, W]
+        # Actually, our observations are already in channel-first format (C, H, W)
+        # So [batch, C, H, W] - no permutation needed
+        return self.linear(self.cnn(observations))
 
 
 class SelfPlayTrainer:
@@ -38,8 +71,14 @@ class SelfPlayTrainer:
         self.single_env = TicTacToeEnv()
         
         if self.algorithm == 'DQN':
+            policy_kwargs = dict(
+                features_extractor_class=CustomTicTacToeCNN,
+                features_extractor_kwargs=dict(features_dim=64),
+                net_arch=[64, 64],
+                activation_fn=nn.ReLU,
+            )
             self.current_model = DQN(
-                "MlpPolicy",
+                "CnnPolicy",
                 self.vec_env,
                 learning_rate=self.learning_rate,
                 buffer_size=10000,
@@ -50,11 +89,15 @@ class SelfPlayTrainer:
                 gradient_steps=1,
                 exploration_fraction=0.1,
                 exploration_final_eps=0.02,
+                policy_kwargs=policy_kwargs,
                 verbose=0
             )
         elif self.algorithm == 'PPO':
             policy_kwargs = dict(
-                net_arch=dict(pi=[8, 8], vf=[8, 8])  # pi: 策略网络, vf: 价值网络
+                features_extractor_class=CustomTicTacToeCNN,
+                features_extractor_kwargs=dict(features_dim=64),
+                net_arch=dict(pi=[64, 64], vf=[64, 64]),
+                activation_fn=nn.ReLU,
             )
             self.current_model = MaskablePPO(
                 MaskableActorCriticPolicy,
@@ -64,15 +107,22 @@ class SelfPlayTrainer:
                 batch_size=64,
                 n_epochs=10,
                 clip_range=0.2,
-                policy_kwargs=policy_kwargs,  # 使用小网络
+                policy_kwargs=policy_kwargs,
                 verbose=0
             )
         elif self.algorithm == 'A2C':
+            policy_kwargs = dict(
+                features_extractor_class=CustomTicTacToeCNN,
+                features_extractor_kwargs=dict(features_dim=64),
+                net_arch=[64, 64],
+                activation_fn=nn.ReLU,
+            )
             self.current_model = A2C(
-                "MlpPolicy",
+                "CnnPolicy",
                 self.vec_env,
                 learning_rate=self.learning_rate,
                 n_steps=5,
+                policy_kwargs=policy_kwargs,
                 verbose=0
             )
         else:
@@ -225,9 +275,21 @@ class SelfPlayTrainer:
     def _random_agent(obs):
         """
         A simple random agent for baseline comparison.
-        obs is the board state from the current player's perspective.
+        obs is the board state from the current player's perspective in 3-channel format.
+        obs shape is (3, 3, 3) where:
+        - obs[0]: Current player's pieces
+        - obs[1]: Opponent's pieces  
+        - obs[2]: Empty positions
         """
-        valid_actions = [i for i in range(9) if obs[i] == 0]  # Empty positions have value 0
+        # Find valid actions from the empty positions channel (channel 2)
+        empty_positions = obs[2]  # This contains 1 where positions are empty, 0 otherwise
+        valid_actions = []
+        
+        for i in range(9):
+            row, col = divmod(i, 3)
+            if empty_positions[row, col] == 1:  # If position is empty
+                valid_actions.append(i)
+        
         if valid_actions:
             return random.choice(valid_actions)
         else:
@@ -328,7 +390,13 @@ def play_human_vs_ai(trainer: SelfPlayTrainer):
         env.render()
         
         # Human's turn
-        valid_actions = [i for i in range(9) if obs[i] == 0]
+        # Find valid actions from the empty positions channel (channel 2)
+        empty_positions = obs[2]  # This contains 1 where positions are empty, 0 otherwise
+        valid_actions = []
+        for i in range(9):
+            row, col = divmod(i, 3)
+            if empty_positions[row, col] == 1:  # If position is empty
+                valid_actions.append(i)
         print(f"Valid moves: {valid_actions}")
         
         while True:

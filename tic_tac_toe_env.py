@@ -29,9 +29,12 @@ class TicTacToeEnv(gym.Env):
         
         # Define action and observation spaces
         self.action_space = spaces.Discrete(9)  # 9 possible positions
-        # Observation space: 3x3 board with values 0 (empty), 1 (current player), -1 (opponent)
+        # Observation space: 3-channel 3x3x3 board in channel-first format (C, H, W) for CNN
+        # Channel 0: Current player's pieces (value 1)
+        # Channel 1: Opponent's pieces (value 1)  
+        # Channel 2: Empty positions (value 1)
         self.observation_space = spaces.Box(
-            low=-1, high=1, shape=(9,), dtype=np.int8
+            low=0, high=1, shape=(3, 3, 3), dtype=np.float32
         )
         
         # Initialize the board
@@ -100,12 +103,29 @@ class TicTacToeEnv(gym.Env):
     
     def _get_observation(self):
         """
-        Get the observation from the perspective of the current player.
+        Get the observation from the perspective of the current player as a 3-channel format.
         This ensures the current player always sees their pieces as +1 and opponent as -1.
+        Returns in channel-first format (C, H, W) for CNN compatibility:
+        Channel 0: Current player's pieces (value 1 where current player has pieces)
+        Channel 1: Opponent's pieces (value 1 where opponent has pieces)
+        Channel 2: Empty positions (value 1 where positions are empty)
         """
-        # Return the board from the current player's perspective
-        # This means: current player's pieces = +1, opponent's pieces = -1
-        return (self.board * self.current_player).flatten().copy()
+        # Get the board from the current player's perspective
+        perspective_board = self.board * self.current_player
+        
+        # Create the three-channel observation in channel-first format (3, 3, 3)
+        observation = np.zeros((3, 3, 3), dtype=np.float32)
+        
+        # Channel 0: Current player's pieces (value 1 where current player has pieces)
+        observation[0, :, :] = (perspective_board == 1).astype(np.float32)
+        
+        # Channel 1: Opponent's pieces (value 1 where opponent has pieces)
+        observation[1, :, :] = (perspective_board == -1).astype(np.float32)
+        
+        # Channel 2: Empty positions (value 1 where positions are empty)
+        observation[2, :, :] = (perspective_board == 0).astype(np.float32)
+        
+        return observation
     
     def _is_valid_action(self, action):
         """Check if an action is valid (position is empty)."""
