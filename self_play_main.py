@@ -17,7 +17,7 @@ class SelfPlayTrainer:
     Advanced self-play trainer for Tic Tac Toe using Stable Baselines3.
     """
     
-    def __init__(self, algorithm='DQN', learning_rate=1e-4):
+    def __init__(self, algorithm='DQN', learning_rate=3e-4):
         self.algorithm = algorithm
         self.learning_rate = learning_rate
         self.best_model = None
@@ -48,6 +48,9 @@ class SelfPlayTrainer:
                 verbose=0
             )
         elif self.algorithm == 'PPO':
+            policy_kwargs = dict(
+                net_arch=[dict(pi=[8, 8], vf=[8, 8])]  # pi: 策略网络, vf: 价值网络
+            )
             self.current_model = MaskablePPO(
                 MaskableActorCriticPolicy,
                 self.env,
@@ -56,6 +59,7 @@ class SelfPlayTrainer:
                 batch_size=64,
                 n_epochs=10,
                 clip_range=0.2,
+                policy_kwargs=policy_kwargs,  # 使用小网络
                 verbose=0
             )
         elif self.algorithm == 'A2C':
@@ -464,7 +468,7 @@ def main():
     trainer = SelfPlayTrainer(algorithm=algorithm)
     
     # Train the model
-    training_results = trainer.train_self_play(num_episodes=100000)
+    training_results = trainer.train_self_play(num_episodes=30000)
     
     # Evaluate the model
     trainer.evaluate_model(num_games=100)
