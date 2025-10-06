@@ -78,18 +78,18 @@ class TicTacToeEnv(gym.Env):
         winner = self._check_winner()
         done = bool(winner) or self._is_board_full()
         
-        reward = 0
+        reward = -0.1
         
         if winner == 1:  # Player 1 wins
-            reward = 1 if self.current_player == 1 else -1  # Reward relative to current player
+            reward += 10 if self.current_player == 1 else -10  # Reward relative to current player
             self.winner = 1
             done = True
         elif winner == -1:  # Player -1 wins
-            reward = 1 if self.current_player == -1 else -1  # Reward relative to current player
+            reward += 10 if self.current_player == -1 else -10  # Reward relative to current player
             self.winner = -1
             done = True
         elif done:  # Draw
-            reward = 0
+            reward += 0
             self.winner = 0
         
         # Switch player for next turn
@@ -162,6 +162,13 @@ class TicTacToeEnv(gym.Env):
     def get_valid_actions(self):
         """Get list of valid actions (empty positions)."""
         return [i for i in range(9) if self._is_valid_action(i)]
+    
+    def action_masks(self):
+        """Return action masks for MaskablePPO - a boolean array where True indicates valid actions."""
+        masks = np.zeros(9, dtype=np.bool_)
+        for i in range(9):
+            masks[i] = self._is_valid_action(i)
+        return masks
     
     def close(self):
         """Clean up resources."""

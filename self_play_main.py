@@ -1,8 +1,10 @@
 import numpy as np
 import random
 from typing import List, Tuple, Dict
-from stable_baselines3 import DQN, PPO, A2C
+from stable_baselines3 import DQN, A2C
 from stable_baselines3.common.callbacks import EvalCallback
+from sb3_contrib import MaskablePPO
+from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 from tic_tac_toe_env import TicTacToeEnv  # Import the base environment
 import torch
 import torch.nn as nn
@@ -46,12 +48,12 @@ class SelfPlayTrainer:
                 verbose=0
             )
         elif self.algorithm == 'PPO':
-            self.current_model = PPO(
-                "MlpPolicy",
+            self.current_model = MaskablePPO(
+                MaskableActorCriticPolicy,
                 self.env,
                 learning_rate=self.learning_rate,
-                n_steps=16,
-                batch_size=32,
+                n_steps=10,
+                batch_size=64,
                 n_epochs=10,
                 clip_range=0.2,
                 verbose=0
@@ -92,12 +94,22 @@ class SelfPlayTrainer:
             # Get action based on current player
             if player_turn == 1:  # X's turn
                 if hasattr(model1, 'predict'):  # It's an SB3 model
-                    action, _ = model1.predict(obs, deterministic=False)
+                    # Check if it's a maskable model that supports action masking
+                    if hasattr(env, 'action_masks'):
+                        action_masks = env.action_masks()
+                        action, _ = model1.predict(obs, deterministic=False, action_masks=action_masks)
+                    else:
+                        action, _ = model1.predict(obs, deterministic=False)
                 else:  # It's a function (like random_agent)
                     action = model1(obs)
             else:  # O's turn
                 if hasattr(model2, 'predict'):  # It's an SB3 model
-                    action, _ = model2.predict(obs, deterministic=False)
+                    # Check if it's a maskable model that supports action masking
+                    if hasattr(env, 'action_masks'):
+                        action_masks = env.action_masks()
+                        action, _ = model2.predict(obs, deterministic=False, action_masks=action_masks)
+                    else:
+                        action, _ = model2.predict(obs, deterministic=False)
                 else:  # It's a function (like random_agent)
                     action = model2(obs)
             
@@ -304,7 +316,7 @@ class SelfPlayTrainer:
         model_wins = 0
         draws = 0
         
-        for i in range(num_games // 2):
+        for i in range(num_games):
             winner, _ = self.play_game(self.best_model, self._random_agent)
             if winner == 1:
                 model_wins += 1
@@ -321,7 +333,7 @@ class SelfPlayTrainer:
         o_wins = 0
         self_draws = 0
         
-        for i in range(num_games // 2):
+        for i in range(num_games):
             winner, _ = self.play_game(self.best_model, self.best_model)
             if winner == 1:
                 x_wins += 1
@@ -347,7 +359,7 @@ class SelfPlayTrainer:
             self.best_model = DQN.load(filepath)
             self.algorithm = 'DQN'
         elif 'ppo' in filepath.lower():
-            self.best_model = PPO.load(filepath)
+            self.best_model = MaskablePPO.load(filepath)
             self.algorithm = 'PPO'
         elif 'a2c' in filepath.lower():
             self.best_model = A2C.load(filepath)
@@ -357,7 +369,7 @@ class SelfPlayTrainer:
             if self.algorithm == 'DQN':
                 self.best_model = DQN.load(filepath)
             elif self.algorithm == 'PPO':
-                self.best_model = PPO.load(filepath)
+                self.best_model = MaskablePPO.load(filepath)
             elif self.algorithm == 'A2C':
                 self.best_model = A2C.load(filepath)
         
@@ -416,7 +428,12 @@ def play_human_vs_ai(trainer: SelfPlayTrainer):
         if not done:
             # AI's turn
             print("AI is thinking...")
-            ai_action, _ = trainer.best_model.predict(obs, deterministic=True)
+            # Use action masks if available
+            if hasattr(env, 'action_masks'):
+                action_masks = env.action_masks()
+                ai_action, _ = trainer.best_model.predict(obs, deterministic=True, action_masks=action_masks)
+            else:
+                ai_action, _ = trainer.best_model.predict(obs, deterministic=True)
             obs, reward, done, truncated, info = env.step(ai_action)
             
             if done:

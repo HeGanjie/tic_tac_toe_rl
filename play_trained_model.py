@@ -94,7 +94,12 @@ def play_against_trained_model(model_path="tic_tac_toe_dqn_selfplay.zip", algori
             if not done:
                 # AI's turn
                 print("AI is thinking...")
-                ai_action, _ = trainer.best_model.predict(obs, deterministic=True)
+                # Use action masks if available
+                if hasattr(env, 'action_masks'):
+                    action_masks = env.action_masks()
+                    ai_action, _ = trainer.best_model.predict(obs, deterministic=True, action_masks=action_masks)
+                else:
+                    ai_action, _ = trainer.best_model.predict(obs, deterministic=True)
                 obs, reward, done, truncated, info = env.step(ai_action)
                 env.render()
                 
