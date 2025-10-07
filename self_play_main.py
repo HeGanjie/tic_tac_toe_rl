@@ -9,7 +9,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 
-from cnn_3_16_32 import CustomTicTacToeCNN
+from transformer_arch import TicTacToeTransformer
 from tic_tac_toe_env import TicTacToeEnv  # Import the base environment
 
 
@@ -39,8 +39,8 @@ class SelfPlayTrainer:
         
         if self.algorithm == 'DQN':
             policy_kwargs = dict(
-                features_extractor_class=CustomTicTacToeCNN,
-                features_extractor_kwargs=dict(features_dim=64),
+                features_extractor_class=TicTacToeTransformer,
+                features_extractor_kwargs=dict(features_dim=64, d_model=16, nhead=2, num_layers=1),
                 net_arch=[64, 64],
                 activation_fn=nn.ReLU,
             )
@@ -61,9 +61,9 @@ class SelfPlayTrainer:
             )
         elif self.algorithm == 'PPO':
             policy_kwargs = dict(
-                features_extractor_class=CustomTicTacToeCNN,
-                features_extractor_kwargs=dict(features_dim=64),
-                net_arch=dict(pi=[64, 64], vf=[64, 64]),
+                features_extractor_class=TicTacToeTransformer,
+                features_extractor_kwargs=dict(features_dim=32, d_model=16, nhead=2, num_layers=2),
+                net_arch=dict(pi=[16, 16], vf=[16, 16]),
                 activation_fn=nn.ReLU,
             )
             self.current_model = MaskablePPO(
@@ -79,8 +79,8 @@ class SelfPlayTrainer:
             )
         elif self.algorithm == 'A2C':
             policy_kwargs = dict(
-                features_extractor_class=CustomTicTacToeCNN,
-                features_extractor_kwargs=dict(features_dim=64),
+                features_extractor_class=TicTacToeTransformer,
+                features_extractor_kwargs=dict(features_dim=64, d_model=16, nhead=2, num_layers=1),
                 net_arch=[64, 64],
                 activation_fn=nn.ReLU,
             )
