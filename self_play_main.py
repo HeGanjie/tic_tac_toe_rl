@@ -368,82 +368,6 @@ class SelfPlayTrainer:
         self.current_model = self.best_model
 
 
-def play_human_vs_ai(trainer: SelfPlayTrainer):
-    """
-    Allow a human to play against the trained AI.
-    """
-    print("\nPlaying against the trained AI!")
-    print("You are X, the AI is O.")
-    print("Positions are numbered from 0-8 as follows:")
-    print(" 0 | 1 | 2 ")
-    print("-----------")
-    print(" 3 | 4 | 5 ")
-    print("-----------")
-    print(" 6 | 7 | 8 ")
-    print()
-    
-    env = trainer.single_env  # Use the single environment for human play
-    obs, _ = env.reset()
-    done = False
-    
-    while not done:
-        env.render()
-        
-        # Human's turn
-        # Find valid actions from the empty positions channel (channel 2)
-        empty_positions = obs[2]  # This contains 1 where positions are empty, 0 otherwise
-        valid_actions = []
-        for i in range(9):
-            row, col = divmod(i, 3)
-            if empty_positions[row, col] == 1:  # If position is empty
-                valid_actions.append(i)
-        print(f"Valid moves: {valid_actions}")
-        
-        while True:
-            try:
-                move = int(input("Enter your move (0-8): "))
-                if move in valid_actions:
-                    break
-                else:
-                    print("Invalid move! Please select from valid moves.")
-            except ValueError:
-                print("Please enter a number between 0-8.")
-        
-        obs, reward, done, truncated, info = env.step(move)
-        
-        if done:
-            env.render()
-            winner = info.get('winner', 0)
-            if winner == 1:
-                print("Congratulations! You won!")
-            elif winner == -1:
-                print("AI wins! Better luck next time.")
-            else:
-                print("It's a draw!")
-            break
-        
-        if not done:
-            # AI's turn
-            print("AI is thinking...")
-            # Use action masks if available
-            if hasattr(env, 'action_masks'):
-                action_masks = env.action_masks()
-                ai_action, _ = trainer.best_model.predict(obs, deterministic=True, action_masks=action_masks)
-            else:
-                ai_action, _ = trainer.best_model.predict(obs, deterministic=True)
-            obs, reward, done, truncated, info = env.step(ai_action)
-            
-            if done:
-                env.render()
-                winner = info.get('winner', 0)
-                if winner == 1:
-                    print("Congratulations! You won!")
-                elif winner == -1:
-                    print("AI wins! Better luck next time.")
-                else:
-                    print("It's a draw!")
-
-
 def main():
     """
     Main function to run the self-play training.
@@ -478,10 +402,8 @@ def main():
     model_path = f"tic_tac_toe_{algorithm.lower()}_selfplay.zip"
     trainer.save_model(model_path)
     
-    # Play against human
-    play_choice = input("\nWould you like to play against the trained AI? (y/n): ").strip().lower()
-    if play_choice == 'y':
-        play_human_vs_ai(trainer)
+    print(f"\nTraining completed! Model saved to {model_path}")
+    print("To play against the trained AI, run: python play_trained_model.py")
 
 
 if __name__ == "__main__":
