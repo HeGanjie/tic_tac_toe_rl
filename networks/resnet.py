@@ -40,10 +40,13 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 class CustomResNetCNN(BaseFeaturesExtractor):
     def __init__(self, observation_space, features_dim=64):
         super().__init__(observation_space, features_dim)
+        
+        # 动态获取通道数 from observation space
+        n_channels = observation_space.shape[0]  # Get number of channels from observation space
 
-        # 初始卷积层，将3通道映射到更多通道
+        # 初始卷积层，将输入通道数映射到更多通道
         self.initial_conv = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, padding=1),
+            nn.Conv2d(n_channels, 16, kernel_size=3, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(),
         )
@@ -62,7 +65,8 @@ class CustomResNetCNN(BaseFeaturesExtractor):
         # 计算最终线性层的输入维度
         with th.no_grad():
             sample_input = th.as_tensor(observation_space.sample()[None]).float()
-            sample_input = sample_input.permute(0, 3, 1, 2)  # NHWC -> NCHW
+            # For our environment, observations are in (C, H, W) format, 
+            # so when batched they are (B, C, H, W) which is already NCHW
             n_flatten = self._forward_features(sample_input).shape[1]
 
         self.linear = nn.Linear(n_flatten, features_dim)
@@ -75,7 +79,7 @@ class CustomResNetCNN(BaseFeaturesExtractor):
         return self.flatten(x)
 
     def forward(self, observations):
-        # 输入是 NHWC，转换为 NCHW
-        observations = observations.permute(0, 3, 1, 2)
+        # 输入应该是 NCHW (Batch, Channels, Height, Width) format
+        # Our observations are already in this format (C, H, W) per environment step
         features = self._forward_features(observations)
         return self.linear(features)

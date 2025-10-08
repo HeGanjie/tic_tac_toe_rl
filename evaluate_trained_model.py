@@ -6,9 +6,156 @@
 """
 
 import sys
+from typing import Tuple, Dict, List
+import random
+import numpy as np
 from self_play_main import SelfPlayTrainer
+from stable_baselines3 import DQN, A2C
+from sb3_contrib import MaskablePPO
 
 
+class TicTacToeEvaluator(SelfPlayTrainer):
+    """
+    井字棋模型评估器 - 专门用于评估已训练模型的性能
+    继承 SelfPlayTrainer 以复用游戏逻辑和环境
+    """
+    
+    def __init__(self, model_path: str, algorithm: str = 'PPO'):
+        # 调用父类构造函数初始化算法
+        super().__init__(algorithm=algorithm)
+        # 加载已训练的模型
+        self.load_model(model_path)
+        # 设置评估模型
+        self.model = self.best_model
+    
+    def evaluate_first_vs_second_player(self, num_games=1000):
+        """
+        Evaluate how well the trained model performs as first player vs second player
+        by playing against the same strength opponent (e.g., a copy of itself or random agent).
+        """
+        print(f"\nEvaluating first-player vs second-player performance over {num_games} games...")
+        
+        # Use a fixed opponent (e.g., random agent) to isolate first vs second player effects
+        x_wins = 0  # Model as X (first player) wins
+        o_wins = 0  # Model as O (second player) wins
+        draws = 0
+        
+        for i in range(num_games):
+            # Alternate which model plays as X to balance the evaluation
+            if i % 2 == 0:
+                # Model is player X (first)
+                winner, _ = self.play_game(self.model, self._random_agent)
+                if winner == 1:
+                    x_wins += 1  # Model (as X) won
+                elif winner == -1:
+                    o_wins += 1  # Opponent (as O) won
+                else:
+                    draws += 1
+            else:
+                # Model is player O (second)
+                winner, _ = self.play_game(self._random_agent, self.model)
+                if winner == 1:
+                    x_wins += 1  # Opponent (as X) won
+                elif winner == -1:
+                    o_wins += 1  # Model (as O) won
+                else:
+                    draws += 1
+        
+        total_games = x_wins + o_wins + draws
+        print(f"Model as X (first): {x_wins} ({x_wins/total_games*100:.1f}%)")
+        print(f"Model as O (second): {o_wins} ({o_wins/total_games*100:.1f}%)")
+        print(f"Draws: {draws} ({draws/total_games*100:.1f}%)")
+        
+        if x_wins + o_wins > 0:  # Avoid division by zero
+            win_rate_as_x = x_wins / (x_wins + o_wins) if (x_wins + o_wins) > 0 else 0
+            print(f"Model's win rate when playing first: {win_rate_as_x:.2f}")
+        else:
+            print("Not enough non-draw games to calculate win rate difference")
+    
+    def comprehensive_evaluation(self, num_games=1000):
+        """
+        Perform a comprehensive evaluation of the trained model.
+        """
+        print("="*60)
+        print("COMPREHENSIVE MODEL EVALUATION")
+        print("="*60)
+        
+        # 1. Performance vs random agent
+        print("\n1. PERFORMANCE AGAINST RANDOM AGENT:")
+        model_as_x_wins = 0
+        random_as_o_wins = 0
+        x_draws = 0
+        
+        for i in range(num_games // 2):
+            winner, _ = self.play_game(self.model, self._random_agent)
+            if winner == 1:
+                model_as_x_wins += 1
+            elif winner == -1:
+                random_as_o_wins += 1
+            else:
+                x_draws += 1
+        
+        random_as_x_wins = 0
+        model_as_o_wins = 0
+        o_draws = 0
+        
+        for i in range(num_games // 2):
+            winner, _ = self.play_game(self._random_agent, self.model)
+            if winner == 1:
+                random_as_x_wins += 1
+            elif winner == -1:
+                model_as_o_wins += 1
+            else:
+                o_draws += 1
+        
+        total_model_wins = model_as_x_wins + model_as_o_wins
+        total_random_wins = random_as_o_wins + random_as_x_wins
+        total_draws = x_draws + o_draws
+        
+        print(f"  As X (first): {model_as_x_wins}/{num_games//2} wins ({model_as_x_wins/(num_games//2)*100:.1f}%)")
+        print(f"  As O (second): {model_as_o_wins}/{num_games//2} wins ({model_as_o_wins/(num_games//2)*100:.1f}%)")
+        print(f"  Overall: Model wins {total_model_wins}/{num_games}, Random wins {total_random_wins}/{num_games}, Draws {total_draws}/{num_games}")
+        print(f"  Overall win rate: {total_model_wins/num_games*100:.1f}%")
+        
+        # 2. First vs second player with same opponent
+        print("\n2. FIRST vs SECOND PLAYER ADVANTAGE (vs random opponent):")
+        self.evaluate_first_vs_second_player(num_games)
+        
+        # 3. Consistency against itself
+        print("\n3. CONSISTENCY AGAINST SAME MODEL:")
+        same_model_x_wins = 0
+        same_model_o_wins = 0
+        same_model_draws = 0
+        
+        for i in range(num_games):
+            if i % 2 == 0:  # Model as X
+                winner, _ = self.play_game(self.model, self.model)
+                if winner == 1:
+                    same_model_x_wins += 1  # First player wins
+                elif winner == -1:
+                    same_model_o_wins += 1  # Second player wins
+                else:
+                    same_model_draws += 1
+            else:  # Model as O (in practice, still same model vs same model)
+                winner, _ = self.play_game(self.model, self.model)
+                if winner == 1:
+                    same_model_x_wins += 1  # First player wins
+                elif winner == -1:
+                    same_model_o_wins += 1  # Second player wins
+                else:
+                    same_model_draws += 1
+        
+        print(f"  First player wins: {same_model_x_wins}/{num_games} ({same_model_x_wins/num_games*100:.1f}%)")
+        print(f"  Second player wins: {same_model_o_wins}/{num_games} ({same_model_o_wins/num_games*100:.1f}%)")
+        print(f"  Draws: {same_model_draws}/{num_games} ({same_model_draws/num_games*100:.1f}%)")
+        
+        # Summary
+        print("\n4. SUMMARY:")
+        print(f"  Model is {(model_as_x_wins/(num_games//2) / (model_as_o_wins/(num_games//2 + 0.001))):.2f}x more likely to win as first player vs random opponent")
+        print(f"  First player advantage: {((same_model_x_wins)/(num_games) - (same_model_o_wins)/(num_games)):.2f} win rate difference")
+        print("="*60)
+
+    
 def evaluate_trained_model(model_path, algorithm='PPO', num_games=1000):
     """
     评估训练好的模型性能
@@ -23,17 +170,14 @@ def evaluate_trained_model(model_path, algorithm='PPO', num_games=1000):
     print(f"评估局数: {num_games}")
     print("=" * 50)
     
-    # 创建训练器
-    trainer = SelfPlayTrainer(algorithm=algorithm)
-    
-    # 加载模型
-    trainer.load_model(model_path)
+    # 创建评估器
+    evaluator = TicTacToeEvaluator(model_path, algorithm)
     
     print(f"模型加载成功！")
     print()
     
-    # 使用内置的评估方法
-    trainer.evaluate_model(num_games=num_games)
+    # 使用内置的综合评估方法
+    evaluator.comprehensive_evaluation(num_games=num_games)
     
     print("=" * 50)
     print("评估完成！")

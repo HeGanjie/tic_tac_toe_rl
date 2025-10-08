@@ -29,12 +29,15 @@ class TicTacToeEnv(gym.Env):
         
         # Define action and observation spaces
         self.action_space = spaces.Discrete(9)  # 9 possible positions
-        # Observation space: 3-channel 3x3x3 board in channel-first format (C, H, W) for CNN
-        # Channel 0: Current player's pieces (value 1)
-        # Channel 1: Opponent's pieces (value 1)  
-        # Channel 2: Empty positions (value 1)
+        # Observation space: 6-channel 3x3x6 board in channel-first format (C, H, W) for CNN
+        # Channel 0: X pieces (value 1 where X has pieces)
+        # Channel 1: O pieces (value 1 where O has pieces)
+        # Channel 2: Current player is X (value 1 if current player is X, else 0)
+        # Channel 3: Current player is O (value 1 if current player is O, else 0)
+        # Channel 4: Last opponent move (one-hot encoded position, 1 where last move was)
+        # Channel 5: Bias plane (value 1 throughout)
         self.observation_space = spaces.Box(
-            low=0, high=1, shape=(3, 3, 3), dtype=np.float32
+            low=0, high=1, shape=(6, 3, 3), dtype=np.float32
         )
         
         # Initialize the board
@@ -42,6 +45,7 @@ class TicTacToeEnv(gym.Env):
         self.current_player = 1  # 1 for X (first player), -1 for O (second player)
         self.done = False
         self.winner = None
+        self.last_opponent_move = None  # Track the last move made by the opponent
         
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """Reset the environment to initial state."""
@@ -50,6 +54,7 @@ class TicTacToeEnv(gym.Env):
         self.current_player = 1
         self.done = False
         self.winner = None
+        self.last_opponent_move = None  # Reset last opponent move
         return self._get_observation(), {}  # Return perspective-based observation and info dict
     
     def step(self, action):
@@ -73,6 +78,12 @@ class TicTacToeEnv(gym.Env):
             self.done = True
             return self._get_observation(), -20, True, False, {"error": "Invalid action", "winner": self.winner}
         
+        # Store the current action as the opponent's last move before switching players
+        if self.current_player == 1:  # If current player is X, opponent is O and vice versa
+            opponent_player = -1
+        else:
+            opponent_player = 1
+        
         # Apply the action to the board
         row, col = divmod(action, 3)
         self.board[row, col] = self.current_player
@@ -95,6 +106,10 @@ class TicTacToeEnv(gym.Env):
             reward += 0
             self.winner = 0
         
+        # Update last opponent move before switching player
+        # The last move made by the current player will be the opponent's move in the next turn
+        self.last_opponent_move = action
+        
         # Switch player for next turn
         self.current_player *= -1
         
@@ -103,27 +118,40 @@ class TicTacToeEnv(gym.Env):
     
     def _get_observation(self):
         """
-        Get the observation from the perspective of the current player as a 3-channel format.
-        This ensures the current player always sees their pieces as +1 and opponent as -1.
-        Returns in channel-first format (C, H, W) for CNN compatibility:
-        Channel 0: Current player's pieces (value 1 where current player has pieces)
-        Channel 1: Opponent's pieces (value 1 where opponent has pieces)
-        Channel 2: Empty positions (value 1 where positions are empty)
+        Get the observation from the perspective of the current player as a 6-channel format.
+        This follows the AlphaGo/AlphaZero inspired approach:
+        Channel 0: X pieces (value 1 where X has pieces)
+        Channel 1: O pieces (value 1 where O has pieces)
+        Channel 2: Current player is X (value 1 if current player is X, else 0)
+        Channel 3: Current player is O (value 1 if current player is O, else 0)
+        Channel 4: Last opponent move (one-hot encoded position, 1 where last move was)
+        Channel 5: Bias plane (value 1 throughout)
+        Returns in channel-first format (6, 3, 3) for CNN compatibility.
         """
-        # Get the board from the current player's perspective
-        perspective_board = self.board * self.current_player
+        # Create the six-channel observation in channel-first format (6, 3, 3)
+        observation = np.zeros((6, 3, 3), dtype=np.float32)
         
-        # Create the three-channel observation in channel-first format (3, 3, 3)
-        observation = np.zeros((3, 3, 3), dtype=np.float32)
+        # Channel 0: X pieces (value 1 where X has pieces)
+        observation[0, :, :] = (self.board == 1).astype(np.float32)
         
-        # Channel 0: Current player's pieces (value 1 where current player has pieces)
-        observation[0, :, :] = (perspective_board == 1).astype(np.float32)
+        # Channel 1: O pieces (value 1 where O has pieces)
+        observation[1, :, :] = (self.board == -1).astype(np.float32)
         
-        # Channel 1: Opponent's pieces (value 1 where opponent has pieces)
-        observation[1, :, :] = (perspective_board == -1).astype(np.float32)
+        # Channel 2: Current player is X (value 1 if current player is X, else 0)
+        if self.current_player == 1:
+            observation[2, :, :] = 1.0
         
-        # Channel 2: Empty positions (value 1 where positions are empty)
-        observation[2, :, :] = (perspective_board == 0).astype(np.float32)
+        # Channel 3: Current player is O (value 1 if current player is O, else 0)
+        if self.current_player == -1:
+            observation[3, :, :] = 1.0
+        
+        # Channel 4: Last opponent move (one-hot encoded position)
+        if self.last_opponent_move is not None:
+            row, col = divmod(self.last_opponent_move, 3)
+            observation[4, row, col] = 1.0
+        
+        # Channel 5: Bias plane (value 1 throughout)
+        observation[5, :, :] = 1.0
         
         return observation
     

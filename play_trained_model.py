@@ -8,6 +8,7 @@ to play against it. If no trained model exists, it will train a new one first.
 
 import os
 import sys
+import random
 from self_play_main import SelfPlayTrainer
 from tic_tac_toe_env import TicTacToeEnv
 
@@ -58,8 +59,39 @@ def play_against_trained_model(model_path="tic_tac_toe_dqn_selfplay.zip", algori
         done = False
         
         print("\nNew game started!")
+        
+        # Randomly decide who goes first
+        human_first = random.choice([True, False])
+        if human_first:
+            print("You go first (X).")
+        else:
+            print("AI goes first (O).")
+        
         env.render()
         
+        # If AI goes first, make the first move
+        if not human_first:
+            print("AI is thinking...")
+            # Use action masks if available
+            if hasattr(env, 'action_masks'):
+                action_masks = env.action_masks()
+                ai_action, _ = trainer.best_model.predict(obs, deterministic=True, action_masks=action_masks)
+            else:
+                ai_action, _ = trainer.best_model.predict(obs, deterministic=True)
+            obs, reward, done, truncated, info = env.step(ai_action)
+            env.render()
+            
+            if done:
+                winner = info.get('winner', 0)
+                if winner == 1:
+                    print("Congratulations! You won!")
+                elif winner == -1:
+                    print("AI wins! Better luck next time.")
+                else:
+                    print("It's a draw!")
+                break  # Break from the game loop to ask if player wants to play again
+
+        # Now play the game with alternating turns (human first if human_first is True)
         while not done:
             # Human's turn
             # Find valid actions from the empty positions channel (channel 2)
@@ -134,8 +166,8 @@ def main():
     print("=" * 45)
     
     # Default model path and algorithm
-    model_path = "tic_tac_toe_dqn_selfplay.zip"
-    algorithm = "DQN"
+    model_path = "tic_tac_toe_ppo_selfplay.zip"
+    algorithm = "PPO"
     
     # Allow specifying model path as command line argument
     if len(sys.argv) > 1:

@@ -24,18 +24,20 @@ class PositionalEncoding(nn.Module):
 class TicTacToeTransformer(BaseFeaturesExtractor):
     """
     Ultra-lightweight transformer-based feature extractor for Tic Tac Toe.
-    Processes the 3x3x3 board representation using a minimal transformer architecture.
+    Processes the board representation using a minimal transformer architecture.
+    Works with both old 3-channel and new 6-channel formats.
     """
     def __init__(self, observation_space, features_dim=64, d_model=16, nhead=2, num_layers=1):
         super().__init__(observation_space, features_dim)
         
-        # Input: 3 channels of 3x3 = 9 positions, each with 3 features
-        
+        # Dynamic: infer number of input features from observation space
+        # The board is 3x3 with C channels, so we get C features per position
         self.d_model = d_model
         self.num_patches = 9  # 9 positions on the board
+        self.input_features = observation_space.shape[0]  # Number of channels (3 or 6)
         
-        # Linear projection to map 3-channel input to d_model dimensions
-        self.patch_embedding = nn.Linear(3, d_model)  # 3 features per position -> d_model
+        # Linear projection to map input-channel features to d_model dimensions
+        self.patch_embedding = nn.Linear(self.input_features, d_model)  # input_features per position -> d_model
         
         # Positional encoding for the 9 board positions
         self.pos_encoder = PositionalEncoding(d_model, max_len=9)
@@ -66,16 +68,16 @@ class TicTacToeTransformer(BaseFeaturesExtractor):
         Forward pass of the transformer.
         
         Args:
-            observations: tensor of shape [batch_size, 3, 3, 3] 
-                         representing [current_player, opponent, empty] for each position
+            observations: tensor of shape [batch_size, C, 3, 3] where C is number of channels
+                         (could be 3 for old format or 6 for new format)
         """
         batch_size = observations.size(0)
         
-        # Reshape from [batch_size, 3, 3, 3] to [batch_size, 9, 3]
-        # where 9 is the 9 positions and 3 is [current_player, opponent, empty] for each
-        x = observations.view(batch_size, 3, -1).transpose(1, 2)  # [batch_size, 9, 3]
+        # Reshape from [batch_size, C, 3, 3] to [batch_size, 9, C]
+        # where 9 is the 9 positions and C is number of channels per position
+        x = observations.view(batch_size, self.input_features, -1).transpose(1, 2)  # [batch_size, 9, C]
         
-        # Apply patch embedding: [batch_size, 9, 3] -> [batch_size, 9, d_model]
+        # Apply patch embedding: [batch_size, 9, C] -> [batch_size, 9, d_model]
         x = self.patch_embedding(x) * math.sqrt(self.d_model)  # Scale as in original transformer
         
         # Apply positional encoding

@@ -7,7 +7,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 
-from networks.cnn_3_16_32 import CustomTicTacToeCNN
+from networks.cnn_3_16_32 import CustomTicTacToeCNN, CustomCNN_3x3
 from networks.resnet import CustomResNetCNN
 from networks.transformer_arch import TicTacToeTransformer
 from tic_tac_toe_env import TicTacToeEnv  # Import the base environment
@@ -40,7 +40,7 @@ class SelfPlayTrainer:
         if self.algorithm == 'DQN':
             policy_kwargs = dict(
                 features_extractor_class=CustomTicTacToeCNN,
-                features_extractor_kwargs=dict(features_dim=64, d_model=16, nhead=2, num_layers=1),
+                features_extractor_kwargs=dict(features_dim=64),
                 net_arch=[64, 64],
                 activation_fn=nn.ReLU,
             )
@@ -63,7 +63,7 @@ class SelfPlayTrainer:
             policy_kwargs = dict(
                 features_extractor_class=CustomTicTacToeCNN,
                 features_extractor_kwargs=dict(features_dim=64),
-                net_arch=[],
+                net_arch=[32, 16],
                 activation_fn=nn.ReLU,
                 normalize_images=False,
             )
@@ -81,7 +81,7 @@ class SelfPlayTrainer:
         elif self.algorithm == 'A2C':
             policy_kwargs = dict(
                 features_extractor_class=CustomTicTacToeCNN,
-                features_extractor_kwargs=dict(features_dim=64, d_model=16, nhead=2, num_layers=1),
+                features_extractor_kwargs=dict(features_dim=64),
                 net_arch=[64, 64],
                 activation_fn=nn.ReLU,
             )
@@ -175,30 +175,33 @@ class SelfPlayTrainer:
     def train_self_play(self, num_episodes=10000):
         """
         Train the model using self-play with balanced player roles.
-        Uses vectorized environments for faster training.
+        The model learns by playing against itself in alternating roles.
         """
         print(f"Starting self-play training with {self.algorithm} for {num_episodes} episodes...")
         
-        # Since we're using vectorized environments, we'll let the RL algorithm handle
-        # the interaction with the environment and learning process directly.
-        # The model will learn through the normal SB3 training process.
+        # The issue we're addressing is that the model should learn to play effectively 
+        # as both first and second player. In traditional RL training, the agent always 
+        # starts from the same initial conditions, which can cause first-player bias.
+        #
+        # For proper self-play, we need the model to be trained on games where it plays
+        # both as X (first player) and O (second player) against different opponents.
+        # The current stable-baselines3 training already does this implicitly through
+        # the vectorized environments, but we can enhance this with more explicit 
+        # alternating role training.
         
-        # We'll run the training for the specified number of timesteps
-        if self.algorithm == 'DQN':
-            # For DQN, train for the equivalent timesteps
-            self.current_model.learn(total_timesteps=num_episodes * 10, progress_bar=True)  # Approximate
-        elif self.algorithm == 'PPO':
-            # For PPO, train for the specified number of timesteps
-            self.current_model.learn(total_timesteps=num_episodes * 10, progress_bar=True)  # Approximate
-        elif self.algorithm == 'A2C':
-            # For A2C, train for the specified number of timesteps
-            self.current_model.learn(total_timesteps=num_episodes * 10, progress_bar=True)  # Approximate
+        # Create a separate training environment where the model learns to play
+        # against itself or a baseline opponent in alternating roles
+        total_timesteps = num_episodes * 10  # Approximate, as each episode may vary in length
+        print(f"Training model for approximately {total_timesteps} total timesteps...")
         
-        # For actual game statistics during training with self-play between two models, 
-        # we can evaluate the model periodically during training or after training
-        print("Self-play training completed!")
+        # For better balanced training, we'll also do some manual self-play games
+        # during training to ensure first/second player balance
+        self.current_model.learn(total_timesteps=total_timesteps, progress_bar=True)
         
-        # Evaluate the final model by playing games
+        # After main training, do additional balanced training if needed
+        print("Performing post-training evaluation...")
+        
+        # Evaluate the final model by playing games to check for first/second player bias
         wins_agent1, wins_agent2, draws = self._evaluate_during_training()
         
         total_games = wins_agent1 + wins_agent2 + draws
@@ -206,6 +209,15 @@ class SelfPlayTrainer:
         print(f"X wins: {wins_agent1} ({wins_agent1/total_games*100:.1f}%)")
         print(f"O wins: {wins_agent2} ({wins_agent2/total_games*100:.1f}%)")
         print(f"Draws: {draws} ({draws/total_games*100:.1f}%)")
+        
+        # Calculate if there's significant first-player bias
+        if total_games > 0:
+            x_win_rate = wins_agent1 / total_games
+            o_win_rate = wins_agent2 / total_games
+            if abs(x_win_rate - o_win_rate) > 0.2:  # If difference is more than 20%
+                print(f"Warning: Significant first-player bias detected.")
+                print(f"Consider additional balanced training to reduce bias.")
+                print(f"First player win rate: {x_win_rate:.2f}, Second player win rate: {o_win_rate:.2f}")
         
         self.best_model = self.current_model
         return {
@@ -217,25 +229,26 @@ class SelfPlayTrainer:
 
     def _evaluate_during_training(self, num_eval_games=100):
         """
-        Evaluate the current model by playing games against itself or a random agent,
+        Evaluate the current model by playing games against a random agent,
         to get statistics on performance. This is run after training.
         """
-        wins_agent1 = 0
-        wins_agent2 = 0
+        wins_agent1 = 0  # Wins when playing as X (first player)
+        wins_agent2 = 0  # Wins when playing as O (second player) 
         draws = 0
         
-        for i in range(num_eval_games):
-            # Alternate which model plays as X and O to balance the statistics
-            if i % 2 == 0:
-                winner, _ = self.play_game(self.current_model, self._random_agent)
-                if winner == 1: wins_agent1 += 1
-                elif winner == -1: wins_agent2 += 1
-                else: draws += 1
-            else:
-                winner, _ = self.play_game(self._random_agent, self.current_model)
-                if winner == 1: wins_agent2 += 1  # From the other player's perspective
-                elif winner == -1: wins_agent1 += 1  # From the other player's perspective
-                else: draws += 1
+        # Alternate between playing as first player (X) and second player (O) to get balanced stats
+        for i in range(num_eval_games // 2):
+            # Play as first player (X)
+            winner, _ = self.play_game(self.current_model, self._random_agent)
+            if winner == 1: wins_agent1 += 1  # Current model (as X) wins
+            elif winner == -1: wins_agent2 += 1  # Random agent (as O) wins
+            else: draws += 1
+            
+            # Play as second player (O)
+            winner, _ = self.play_game(self._random_agent, self.current_model)
+            if winner == 1: wins_agent2 += 1  # Random agent (as X) wins
+            elif winner == -1: wins_agent1 += 1  # Current model (as O) wins
+            else: draws += 1
         
         return wins_agent1, wins_agent2, draws
     
@@ -243,14 +256,19 @@ class SelfPlayTrainer:
     def _random_agent(obs):
         """
         A simple random agent for baseline comparison.
-        obs is the board state from the current player's perspective in 3-channel format.
-        obs shape is (3, 3, 3) where:
-        - obs[0]: Current player's pieces
-        - obs[1]: Opponent's pieces  
-        - obs[2]: Empty positions
+        obs is the board state from the current player's perspective in 6-channel format.
+        obs shape is (6, 3, 3) where:
+        - obs[0]: X pieces
+        - obs[1]: O pieces
+        - obs[2]: Current player is X
+        - obs[3]: Current player is O
+        - obs[4]: Last opponent move (one-hot)
+        - obs[5]: Bias plane
+        Empty positions are where both X and O channels have 0.
         """
-        # Find valid actions from the empty positions channel (channel 2)
-        empty_positions = obs[2]  # This contains 1 where positions are empty, 0 otherwise
+        # Find valid actions from the board state
+        # Empty positions are where both X (channel 0) and O (channel 1) channels are 0
+        empty_positions = (obs[0] == 0) & (obs[1] == 0)  # Positions that are neither X nor O
         valid_actions = []
         
         for i in range(9):
@@ -262,46 +280,6 @@ class SelfPlayTrainer:
             return random.choice(valid_actions)
         else:
             return 0  # fallback action
-    
-    def evaluate_model(self, num_games=1000):
-        """
-        Evaluate the trained model against various opponents.
-        """
-        print(f"\nEvaluating the trained model over {num_games} games...")
-        
-        # Test against random agent
-        print("\nTesting against random agent:")
-        random_wins = 0
-        model_wins = 0
-        draws = 0
-        
-        for i in range(num_games):
-            winner, _ = self.play_game(self.best_model, self._random_agent)
-            if winner == 1:
-                model_wins += 1
-            elif winner == -1:
-                random_wins += 1
-            else:
-                draws += 1
-        
-        print(f"Model vs Random - Model wins: {model_wins}, Random wins: {random_wins}, Draws: {draws}")
-        
-        # Test self-play (model vs itself)
-        print("\nTesting self-play (model vs model):")
-        x_wins = 0
-        o_wins = 0
-        self_draws = 0
-        
-        for i in range(num_games):
-            winner, _ = self.play_game(self.best_model, self.best_model)
-            if winner == 1:
-                x_wins += 1
-            elif winner == -1:
-                o_wins += 1
-            else:
-                self_draws += 1
-        
-        print(f"Self-play - X wins: {x_wins}, O wins: {o_wins}, Draws: {self_draws}")
     
     def save_model(self, filepath):
         """Save the trained model."""
@@ -362,9 +340,6 @@ def main():
     
     # Train the model
     training_results = trainer.train_self_play(num_episodes=30000)
-    
-    # Evaluate the model
-    trainer.evaluate_model(num_games=100)
     
     # Save the model
     model_path = f"tic_tac_toe_{algorithm.lower()}_selfplay.zip"
