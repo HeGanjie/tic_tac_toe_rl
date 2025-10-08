@@ -1,15 +1,15 @@
 import random
 from typing import List, Tuple, Dict
 
-import torch as th
 import torch.nn as nn
 from stable_baselines3 import DQN, A2C
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.vec_env import DummyVecEnv
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 
-from transformer_arch import TicTacToeTransformer
+from networks.cnn_3_16_32 import CustomTicTacToeCNN
+from networks.resnet import CustomResNetCNN
+from networks.transformer_arch import TicTacToeTransformer
 from tic_tac_toe_env import TicTacToeEnv  # Import the base environment
 
 
@@ -39,7 +39,7 @@ class SelfPlayTrainer:
         
         if self.algorithm == 'DQN':
             policy_kwargs = dict(
-                features_extractor_class=TicTacToeTransformer,
+                features_extractor_class=CustomTicTacToeCNN,
                 features_extractor_kwargs=dict(features_dim=64, d_model=16, nhead=2, num_layers=1),
                 net_arch=[64, 64],
                 activation_fn=nn.ReLU,
@@ -61,10 +61,11 @@ class SelfPlayTrainer:
             )
         elif self.algorithm == 'PPO':
             policy_kwargs = dict(
-                features_extractor_class=TicTacToeTransformer,
-                features_extractor_kwargs=dict(features_dim=32, d_model=16, nhead=2, num_layers=2),
-                net_arch=dict(pi=[16, 16], vf=[16, 16]),
+                features_extractor_class=CustomTicTacToeCNN,
+                features_extractor_kwargs=dict(features_dim=64),
+                net_arch=[],
                 activation_fn=nn.ReLU,
+                normalize_images=False,
             )
             self.current_model = MaskablePPO(
                 MaskableActorCriticPolicy,
@@ -79,7 +80,7 @@ class SelfPlayTrainer:
             )
         elif self.algorithm == 'A2C':
             policy_kwargs = dict(
-                features_extractor_class=TicTacToeTransformer,
+                features_extractor_class=CustomTicTacToeCNN,
                 features_extractor_kwargs=dict(features_dim=64, d_model=16, nhead=2, num_layers=1),
                 net_arch=[64, 64],
                 activation_fn=nn.ReLU,
