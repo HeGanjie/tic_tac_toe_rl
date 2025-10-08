@@ -13,9 +13,9 @@ class CustomTicTacToeCNN(BaseFeaturesExtractor):
         n_channels = observation_space.shape[0]  # Get number of channels from observation space
         
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_channels, 32, kernel_size=2), # 3x3 -> 2x2 (or adjusted for different input sizes)
+            nn.Conv2d(n_channels, 16, kernel_size=2), # 3x3 -> 2x2 (or adjusted for different input sizes)
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=2), # 2x2 -> 1x1 (or adjusted)
+            nn.Conv2d(16, 32, kernel_size=2), # 2x2 -> 1x1 (or adjusted)
             nn.ReLU(),
             nn.Flatten(),
         )

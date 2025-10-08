@@ -32,11 +32,11 @@ def play_against_trained_model(model_path="tic_tac_toe_dqn_selfplay.zip", algori
         # Train a new model
         trainer = SelfPlayTrainer(algorithm=algorithm)
         print(f"Training a {algorithm} model for 2000 episodes...")
-        training_results = trainer.train_self_play(num_episodes=2000)
+        trainer.train_self_play(num_episodes=2000)
         trainer.save_model(model_path)
         
         # Set the trained model as the best model for play
-        best_model = trainer.best_model
+        # best_model = trainer.best_model
     else:
         print(f"Loading trained model from {model_path}...")
         trainer = SelfPlayTrainer(algorithm=algorithm)  # This will be updated by load_model

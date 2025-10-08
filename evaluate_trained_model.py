@@ -27,7 +27,83 @@ class TicTacToeEvaluator(SelfPlayTrainer):
         self.load_model(model_path)
         # 设置评估模型
         self.model = self.best_model
-    
+
+    def play_game(self, model1, model2, render=False) -> Tuple[int, List[Dict]]:
+        """
+        Play a game between two models or agents using a single environment.
+
+        Args:
+            model1: First model/agent (player X)
+            model2: Second model/agent (player O)
+            render: Whether to render the game
+
+        Returns:
+            Tuple of (winner, game_experience)
+        """
+        env = self.single_env  # Use single environment for game playing
+        obs, _ = env.reset()
+        done = False
+        game_experience = []
+        player_turn = 1  # 1 for X (model1), -1 for O (model2)
+
+        while not done:
+            if render:
+                env.render()
+
+            # Get action based on current player
+            if player_turn == 1:  # X's turn
+                if hasattr(model1, 'predict'):  # It's an SB3 model
+                    # Check if it's a maskable model that supports action masking (like MaskablePPO)
+                    if hasattr(env, 'action_masks') and self.algorithm == 'PPO':
+                        action_masks = env.action_masks()
+                        action, _ = model1.predict(obs, deterministic=False, action_masks=action_masks)
+                    else:
+                        action, _ = model1.predict(obs, deterministic=False)
+                else:  # It's a function (like random_agent)
+                    action = model1(obs)
+            else:  # O's turn
+                if hasattr(model2, 'predict'):  # It's an SB3 model
+                    # Check if it's a maskable model that supports action masking (like MaskablePPO)
+                    if hasattr(env, 'action_masks') and self.algorithm == 'PPO':
+                        action_masks = env.action_masks()
+                        action, _ = model2.predict(obs, deterministic=False, action_masks=action_masks)
+                    else:
+                        action, _ = model2.predict(obs, deterministic=False)
+                else:  # It's a function (like random_agent)
+                    action = model2(obs)
+
+            # Store experience before taking action
+            prev_obs = obs.copy()
+
+            # Take action
+            obs, reward, done, truncated, info = env.step(action)
+
+            # Append to game experience
+            game_experience.append({
+                'state': prev_obs,
+                'action': action,
+                'reward': reward,
+                'next_state': obs,
+                'done': done,
+                'player': player_turn
+            })
+
+            # Switch player only if game continues (no invalid action penalty that ends game)
+            if not done:
+                player_turn *= -1
+
+        if render:
+            env.render()
+            winner = info.get('winner', 0)
+            if winner == 1:
+                print("X (Model 1) wins!")
+            elif winner == -1:
+                print("O (Model 2) wins!")
+            else:
+                print("It's a draw!")
+
+        return info.get('winner', 0), game_experience
+
     def evaluate_first_vs_second_player(self, num_games=1000):
         """
         Evaluate how well the trained model performs as first player vs second player

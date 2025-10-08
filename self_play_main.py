@@ -63,7 +63,7 @@ class SelfPlayTrainer:
             policy_kwargs = dict(
                 features_extractor_class=CustomTicTacToeCNN,
                 features_extractor_kwargs=dict(features_dim=64),
-                net_arch=[32, 16],
+                net_arch=[64, 64],
                 activation_fn=nn.ReLU,
                 normalize_images=False,
             )
@@ -96,82 +96,6 @@ class SelfPlayTrainer:
         else:
             raise ValueError(f"Unsupported algorithm: {self.algorithm}")
 
-    def play_game(self, model1, model2, render=False) -> Tuple[int, List[Dict]]:
-        """
-        Play a game between two models or agents using a single environment.
-        
-        Args:
-            model1: First model/agent (player X)
-            model2: Second model/agent (player O)
-            render: Whether to render the game
-            
-        Returns:
-            Tuple of (winner, game_experience)
-        """
-        env = self.single_env  # Use single environment for game playing
-        obs, _ = env.reset()
-        done = False
-        game_experience = []
-        player_turn = 1  # 1 for X (model1), -1 for O (model2)
-        
-        while not done:
-            if render:
-                env.render()
-            
-            # Get action based on current player
-            if player_turn == 1:  # X's turn
-                if hasattr(model1, 'predict'):  # It's an SB3 model
-                    # Check if it's a maskable model that supports action masking (like MaskablePPO)
-                    if hasattr(env, 'action_masks') and self.algorithm == 'PPO':
-                        action_masks = env.action_masks()
-                        action, _ = model1.predict(obs, deterministic=False, action_masks=action_masks)
-                    else:
-                        action, _ = model1.predict(obs, deterministic=False)
-                else:  # It's a function (like random_agent)
-                    action = model1(obs)
-            else:  # O's turn
-                if hasattr(model2, 'predict'):  # It's an SB3 model
-                    # Check if it's a maskable model that supports action masking (like MaskablePPO)
-                    if hasattr(env, 'action_masks') and self.algorithm == 'PPO':
-                        action_masks = env.action_masks()
-                        action, _ = model2.predict(obs, deterministic=False, action_masks=action_masks)
-                    else:
-                        action, _ = model2.predict(obs, deterministic=False)
-                else:  # It's a function (like random_agent)
-                    action = model2(obs)
-            
-            # Store experience before taking action
-            prev_obs = obs.copy()
-            
-            # Take action
-            obs, reward, done, truncated, info = env.step(action)
-            
-            # Append to game experience
-            game_experience.append({
-                'state': prev_obs,
-                'action': action,
-                'reward': reward,
-                'next_state': obs,
-                'done': done,
-                'player': player_turn
-            })
-            
-            # Switch player only if game continues (no invalid action penalty that ends game)
-            if not done:
-                player_turn *= -1
-        
-        if render:
-            env.render()
-            winner = info.get('winner', 0)
-            if winner == 1:
-                print("X (Model 1) wins!")
-            elif winner == -1:
-                print("O (Model 2) wins!")
-            else:
-                print("It's a draw!")
-        
-        return info.get('winner', 0), game_experience
-
     def train_self_play(self, num_episodes=10000):
         """
         Train the model using self-play with balanced player roles.
@@ -198,60 +122,18 @@ class SelfPlayTrainer:
         # during training to ensure first/second player balance
         self.current_model.learn(total_timesteps=total_timesteps, progress_bar=True)
         
-        # After main training, do additional balanced training if needed
-        print("Performing post-training evaluation...")
+        print("Self-play training completed!")
         
-        # Evaluate the final model by playing games to check for first/second player bias
-        wins_agent1, wins_agent2, draws = self._evaluate_during_training()
-        
-        total_games = wins_agent1 + wins_agent2 + draws
-        print(f"Final Results:")
-        print(f"X wins: {wins_agent1} ({wins_agent1/total_games*100:.1f}%)")
-        print(f"O wins: {wins_agent2} ({wins_agent2/total_games*100:.1f}%)")
-        print(f"Draws: {draws} ({draws/total_games*100:.1f}%)")
-        
-        # Calculate if there's significant first-player bias
-        if total_games > 0:
-            x_win_rate = wins_agent1 / total_games
-            o_win_rate = wins_agent2 / total_games
-            if abs(x_win_rate - o_win_rate) > 0.2:  # If difference is more than 20%
-                print(f"Warning: Significant first-player bias detected.")
-                print(f"Consider additional balanced training to reduce bias.")
-                print(f"First player win rate: {x_win_rate:.2f}, Second player win rate: {o_win_rate:.2f}")
-        
+        # Set the trained model as the best model
         self.best_model = self.current_model
         return {
-            'wins_agent1': wins_agent1,
-            'wins_agent2': wins_agent2,
-            'draws': draws,
-            'total_games': total_games
+            'wins_agent1': 0,  # These will be calculated in the evaluation script
+            'wins_agent2': 0,
+            'draws': 0,
+            'total_games': 0
         }
 
-    def _evaluate_during_training(self, num_eval_games=100):
-        """
-        Evaluate the current model by playing games against a random agent,
-        to get statistics on performance. This is run after training.
-        """
-        wins_agent1 = 0  # Wins when playing as X (first player)
-        wins_agent2 = 0  # Wins when playing as O (second player) 
-        draws = 0
-        
-        # Alternate between playing as first player (X) and second player (O) to get balanced stats
-        for i in range(num_eval_games // 2):
-            # Play as first player (X)
-            winner, _ = self.play_game(self.current_model, self._random_agent)
-            if winner == 1: wins_agent1 += 1  # Current model (as X) wins
-            elif winner == -1: wins_agent2 += 1  # Random agent (as O) wins
-            else: draws += 1
-            
-            # Play as second player (O)
-            winner, _ = self.play_game(self._random_agent, self.current_model)
-            if winner == 1: wins_agent2 += 1  # Random agent (as X) wins
-            elif winner == -1: wins_agent1 += 1  # Current model (as O) wins
-            else: draws += 1
-        
-        return wins_agent1, wins_agent2, draws
-    
+
     @staticmethod
     def _random_agent(obs):
         """
@@ -346,6 +228,12 @@ def main():
     trainer.save_model(model_path)
     
     print(f"\nTraining completed! Model saved to {model_path}")
+    
+    # Call evaluation on the newly trained model
+    print("Running comprehensive evaluation on the trained model...")
+    from evaluate_trained_model import evaluate_trained_model
+    evaluate_trained_model(model_path, algorithm, num_games=100)  # Evaluate with 100 games for quick assessment
+    
     print("To play against the trained AI, run: python play_trained_model.py")
 
 
