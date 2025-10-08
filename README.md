@@ -10,7 +10,6 @@ The system trains an AI agent to play Tic Tac Toe by having it play against itse
 
 - `tic_tac_toe_env.py`: Basic Tic Tac Toe environment compatible with Gymnasium
 - `self_play_main.py`: Main self-play training implementation with Stable Baselines3 integration
-- `demo.py`: Demo script to run training or play games
 
 ## Features
 
@@ -25,12 +24,12 @@ The system trains an AI agent to play Tic Tac Toe by having it play against itse
 
 ### Run Training:
 ```bash
-python demo.py train
+python self_play_main.py
 ```
 
-### Run Demo Game:
+### Play Trained Model:
 ```bash
-python demo.py demo
+python play_trained_model.py tic_tac_toe_[dqn|ppo|a2c]_selfplay.zip
 ```
 
 ### Select Algorithm:
